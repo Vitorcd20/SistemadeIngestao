@@ -1,0 +1,25 @@
+# Environment
+.env
+
+# Local dev overrides (não commitar — contém configurações locais)
+docker-compose.override.yml
+
+# Backend
+backend/target/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Generated test data (regenerate with data-generator/generate_csv.py)
+data-generator/*.csv
+
+# IDE
+.idea/
+*.iml
+
+# OS / editor
+.DS_Store
+*.log
+
+pdf

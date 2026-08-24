@@ -1,0 +1,40 @@
+package com.ingestion.web;
+
+/**
+ * Token bucket simples, sem dependência externa. Uma instância por chave
+ * limitada (ex: IP do cliente); {@link #tryConsume()} é o único ponto de
+ * entrada e é seguro chamar concorrentemente.
+ */
+final class TokenBucket {
+
+    private final double capacity;
+    private final double refillPerNano;
+    private double tokens;
+    private long lastRefillNanos;
+
+    TokenBucket(double capacity, double refillPerMinute) {
+        this.capacity = capacity;
+        this.refillPerNano = refillPerMinute / 60_000_000_000.0;
+        this.tokens = capacity;
+        this.lastRefillNanos = System.nanoTime();
+    }
+
+    synchronized boolean tryConsume() {
+        refill();
+        if (tokens < 1.0) {
+            return false;
+        }
+        tokens -= 1.0;
+        return true;
+    }
+
+    private void refill() {
+        long now = System.nanoTime();
+        double elapsed = now - lastRefillNanos;
+        if (elapsed <= 0) {
+            return;
+        }
+        tokens = Math.min(capacity, tokens + elapsed * refillPerNano);
+        lastRefillNanos = now;
+    }
+}
