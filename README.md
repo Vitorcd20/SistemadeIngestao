@@ -1,294 +1,144 @@
-# Ingestion System
+# Sistema de Ingestão
 
-A full-stack system for ingesting, processing, and exploring large CSV files of
-financial transactions (1M+ rows) without loading the file into memory, without
-running the database into a slow crawl, and with a UI that stays responsive no
-matter how large the underlying table gets.
+Sistema full-stack para ingestão, processamento e exploração de grandes arquivos CSV de transações financeiras (1M+ linhas) sem carregar o arquivo na memória, sem travar o banco de dados e com uma interface que permanece responsiva independente do tamanho da tabela.
 
-**Stack:** Java 17 + Spring Boot (backend) · React + Vite + Zustand (frontend) ·
-PostgreSQL 16 (Docker) · orchestrated entirely via `docker compose`.
+**Stack:** Java 17 + Spring Boot (backend) · React + Vite + Zustand (frontend) · PostgreSQL 16 (Docker) · orquestrado inteiramente via `docker compose`.
 
-## Running it
+## Como rodar
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-That's it — no local Java, Node, Maven, or Postgres installation required. Once
-containers report healthy:
+Só isso — nenhuma instalação local de Java, Node, Maven ou Postgres é necessária. Assim que os containers reportarem healthy:
 
-- Frontend: http://localhost:3000 (register/log in here — all uploads,
-  transactions, and dashboard data are private to your account)
-- Backend API: not published directly — reachable only through the frontend's
-  `/api` proxy (see [Authentication](#authentication) for why). For local
-  debugging, use `docker compose exec backend sh` or temporarily add a
-  `ports:` mapping back in `docker-compose.yml`.
-- Postgres: localhost:5432 (credentials in `.env`)
+- Frontend: http://localhost:3000 (registre-se ou faça login — uploads, transações e dados do painel são privados por conta)
+- API do backend: não publicada diretamente — acessível apenas pelo proxy `/api` do nginx (veja [Autenticação](#autenticação) para entender o porquê). Para debug local, use `docker compose exec backend sh` ou adicione temporariamente um `ports:` no `docker-compose.yml`.
+- Postgres: localhost:5432 (credenciais no `.env`)
 
-### Generating test data
+### Gerando dados de teste
 
-A CSV isn't included in the repo (kept out via `.gitignore` — it's large,
-regenerable data, not source). Generate one before testing the upload flow:
+O CSV não está incluído no repositório (ignorado via `.gitignore` — são dados grandes e regeneráveis, não código-fonte). Gere um antes de testar o fluxo de upload:
 
 ```bash
 python data-generator/generate_csv.py --rows 1500000 --out data-generator/transactions.csv
 ```
 
-This streams rows directly to disk via `csv.writer` — memory stays flat
-(~15MB measured) regardless of `--rows`, so it can generate arbitrarily large
-files without buffering them.
+O script escreve as linhas diretamente no disco via `csv.writer` — a memória permanece estável (~15MB medidos) independente do valor de `--rows`, então é possível gerar arquivos arbitrariamente grandes sem bufferização.
 
-## Architecture
+## Arquitetura
 
 ```
 frontend (nginx, :3000) --/api--> backend (Spring Boot, :8080) --> postgres (:5432)
 ```
 
-nginx serves the built React app and reverse-proxies `/api/*` to the backend
-(with `proxy_buffering off`, required for the SSE endpoint — see below). In
-local dev, Vite's dev server proxy does the same job.
+O nginx serve o app React buildado e faz proxy reverso de `/api/*` para o backend (com `proxy_buffering off`, necessário para o endpoint SSE — veja abaixo). Em desenvolvimento local, o proxy do servidor Vite faz o mesmo papel.
 
-### Backend module layout
+### Estrutura de módulos do backend
 
 ```
 backend/src/main/java/com/ingestion/
-├── config/        AsyncConfig (ingestion + SSE thread pools), *Properties records
-├── controller/     UploadController, JobController, TransactionController, AggregationController
-├── service/        CsvIngestionService (the streaming/batch ingestion pipeline)
-├── repository/     JdbcTemplate-based data access (no JPA on the hot path)
-├── dto/             plain records, no ORM entities
-└── exception/       GlobalExceptionHandler
+├── config/        AsyncConfig (thread pools de ingestão + SSE), records *Properties
+├── controller/    UploadController, JobController, TransactionController, AggregationController
+├── service/       CsvIngestionService (pipeline de ingestão em stream/batch)
+├── repository/    acesso a dados via JdbcTemplate (sem JPA no caminho quente)
+├── dto/           records simples, sem entidades ORM
+└── exception/     GlobalExceptionHandler
 ```
 
-## How OOM was avoided during file processing
+## Como o OOM foi evitado no processamento de arquivos
 
-Three independent decisions compound to keep memory flat regardless of file
-size — measured at **~180–205MB** processing a 1.5M-row / 78MB CSV in the
-packaged production container (baseline ~180MB with an empty table; peak
-~205MB mid-ingestion; back to ~186MB after — no growth trend across the run):
+Três decisões independentes se combinam para manter a memória estável independente do tamanho do arquivo — medido em **~180–205MB** processando um CSV de 1,5M linhas / 78MB no container de produção (base ~180MB com tabela vazia; pico ~205MB durante a ingestão; volta a ~186MB ao final — sem tendência de crescimento ao longo da execução):
 
-1. **The upload itself is never buffered in memory.**
-   `spring.servlet.multipart.file-size-threshold` is set low (`1KB`), which
-   forces Tomcat to spool the incoming multipart body straight to a temp file
-   on disk instead of holding it as a byte array. `UploadController` then
-   streams from that spooled file to its own managed temp path via
-   `Files.copy(inputStream, targetPath)` — a fixed-size-buffer copy, not a
-   `getBytes()` call.
+1. **O upload nunca é bufferizado em memória.**
+   `spring.servlet.multipart.file-size-threshold` é configurado baixo (`1KB`), o que força o Tomcat a fazer spool do corpo multipart diretamente em um arquivo temporário em disco em vez de mantê-lo como array de bytes. O `UploadController` então lê desse arquivo spoolado para seu próprio caminho temporário gerenciado via `Files.copy(inputStream, targetPath)` — uma cópia com buffer de tamanho fixo, não uma chamada a `getBytes()`.
 
-2. **The CSV is parsed row-by-row via a streaming parser, never fully
-   materialized.** `CsvIngestionService` opens the file through a
-   `BufferedReader` wrapped in Apache Commons CSV's `CSVParser`, iterated with
-   a plain `for` loop. Commons CSV's iterator pulls one record at a time from
-   the underlying reader — the moment-to-moment working set is one
-   `CSVRecord`, not the file. (Calling `parser.getRecords()` instead would
-   silently defeat this — it materializes every row as a `List` up front, which
-   is the classic way this kind of pipeline accidentally OOMs. We never call it.)
+2. **O CSV é parseado linha por linha via parser em stream, nunca completamente materializado.** O `CsvIngestionService` abre o arquivo através de um `BufferedReader` encapsulado no `CSVParser` do Apache Commons CSV, iterado com um `for` simples. O iterador do Commons CSV puxa um registro por vez do reader subjacente — o conjunto de trabalho instantâneo é um `CSVRecord`, não o arquivo inteiro. (Chamar `parser.getRecords()` em vez disso derrotaria silenciosamente isso — materializa todas as linhas como uma `List` de uma vez, que é a forma clássica de um pipeline desse tipo causar OOM acidentalmente. Nunca chamamos isso.)
 
-3. **Only one batch (default 5,000 rows) is held in memory at a time.**
-   Parsed rows accumulate into a single, reused `ArrayList<TransactionRow>`.
-   Once it reaches the batch size, it's flushed to Postgres via
-   `JdbcTemplate.batchUpdate` and `.clear()`'d — not reassigned, so the
-   backing array's capacity is reused across all ~300 batches in a 1.5M-row
-   file rather than re-allocated. The list is bounded by `app.ingestion.batch-size`
-   regardless of how many total rows the file has: a 100-row file and a
-   100M-row file both peak at the same per-batch memory footprint, just for
-   a different number of iterations.
+3. **Apenas um batch (padrão 5.000 linhas) é mantido em memória por vez.**
+   As linhas parseadas acumulam em um único `ArrayList<TransactionRow>` reutilizado. Ao atingir o tamanho do batch, ele é enviado ao Postgres via `JdbcTemplate.batchUpdate` e limpo com `.clear()` — não reatribuído, então a capacidade do array de suporte é reutilizada em todos os ~300 batches de um arquivo de 1,5M linhas em vez de ser realocada. A lista é limitada por `app.ingestion.batch-size` independente de quantas linhas o arquivo tem: um arquivo de 100 linhas e um de 100M linhas atingem o mesmo pico de memória por batch, apenas por um número diferente de iterações.
 
-Row-level failures (bad date, bad amount, missing id, etc.) are caught per-row,
-counted, and skipped — they don't fail the whole job. The **error sample kept
-for the status/UI is capped** (`app.ingestion.error-sample-limit`, default 50)
-rather than unbounded, because a file with a systemic formatting bug could
-otherwise produce a million error strings and defeat the whole point.
+Falhas por linha (data inválida, valor inválido, id ausente, etc.) são capturadas individualmente, contadas e ignoradas — não cancelam o job inteiro. A **amostra de erros mantida para o status/UI é limitada** (`app.ingestion.error-sample-limit`, padrão 50) em vez de ilimitada, porque um arquivo com um bug de formatação sistêmico poderia gerar um milhão de strings de erro e derrotar o propósito.
 
-**Async, not blocking:** `POST /api/uploads` returns as soon as the file is
-spooled to disk and a job row is created — it does not wait for ingestion.
-Processing runs on a small dedicated thread pool (`AsyncConfig.ingestionExecutor`,
-2 threads) via `@Async`, deliberately kept small since ingestion is
-DB-write-bound, not CPU-bound — more threads would just mean more concurrent
-batch writers contending for the same table and indexes, not more throughput.
+**Assíncrono, não bloqueante:** `POST /api/uploads` retorna assim que o arquivo é spoolado em disco e uma linha de job é criada — não aguarda a ingestão. O processamento roda em um thread pool dedicado pequeno (`AsyncConfig.ingestionExecutor`, 2 threads) via `@Async`, mantido pequeno deliberadamente já que a ingestão é limitada por escrita no banco, não por CPU — mais threads significariam apenas mais escritores de batch concorrentes disputando a mesma tabela e índices, sem ganho de throughput.
 
-## The batch-insert strategy
+## Estratégia de batch insert
 
-- Raw `JdbcTemplate.batchUpdate`, **not** Spring Data JPA, on the ingestion
-  path. JPA's persistence context retains a managed reference to every entity
-  it touches in a session — exactly the unbounded-memory-growth pattern this
-  system is designed to avoid. `TransactionRepository` and
-  `IngestionJobRepository` are both plain JDBC.
-- `INSERT ... ON CONFLICT (id) DO NOTHING`, batched at 5,000 rows per
-  `batchUpdate` call. This makes re-uploading the same file idempotent — verified
-  by uploading the 1.5M-row file twice: the second run inserted zero
-  duplicate rows and, thanks to warm OS/Postgres caches, completed faster
-  (~37s vs ~103s in local dev testing).
-- The job's `rows_processed` counter is written to Postgres **once per batch**
-  (every 5,000 rows), not once per row — that's ~300 status writes for a
-  1.5M-row file instead of 1.5M, keeping the status-tracking overhead
-  negligible relative to the actual data writes.
+- `JdbcTemplate.batchUpdate` puro, **não** Spring Data JPA, no caminho de ingestão. O contexto de persistência do JPA mantém uma referência gerenciada para cada entidade que toca em uma sessão — exatamente o padrão de crescimento de memória ilimitado que este sistema foi projetado para evitar. `TransactionRepository` e `IngestionJobRepository` são ambos JDBC puro.
+- `INSERT ... ON CONFLICT (id) DO NOTHING`, em batches de 5.000 linhas por chamada ao `batchUpdate`. Isso torna o re-upload do mesmo arquivo idempotente — verificado fazendo upload do arquivo de 1,5M linhas duas vezes: a segunda execução inseriu zero linhas duplicadas e, graças aos caches quentes do OS/Postgres, completou mais rápido (~37s vs ~103s em testes locais).
+- O contador `rows_processed` do job é gravado no Postgres **uma vez por batch** (a cada 5.000 linhas), não uma vez por linha — ~300 gravações de status para um arquivo de 1,5M linhas em vez de 1,5M, mantendo o overhead de rastreamento de status desprezível em relação às gravações reais de dados.
 
-**Measured throughput:** ~16,300 rows/sec (1.5M rows in 92s) in the packaged
-Docker container on this dev machine. This will vary with hardware/disk, but
-the flat-memory property does not — it's a function of the batch-size bound,
-not the machine.
+**Throughput medido:** ~16.300 linhas/seg (1,5M linhas em 92s) no container Docker empacotado nesta máquina de desenvolvimento. Isso varia com hardware/disco, mas a propriedade de memória estável não varia — é função do limite do tamanho do batch, não da máquina.
 
-## Real-time status: SSE, polling the database
+## Status em tempo real: SSE, consultando o banco
 
-`GET /api/jobs/{id}/events` opens an `SseEmitter` backed by a **poll loop that
-reads the `ingestion_jobs` row every second**, rather than wiring the
-ingestion thread directly to the emitter with an in-memory pub/sub. This was
-a deliberate simplicity/latency trade-off: direct wiring would deliver
-updates instantly, but requires tracking emitters per job across threads and
-handling reconnects/multiple tabs correctly. Polling the DB means:
+`GET /api/jobs/{id}/events` abre um `SseEmitter` sustentado por um **loop de polling que lê a linha de `ingestion_jobs` a cada segundo**, em vez de conectar a thread de ingestão diretamente ao emitter com um pub/sub em memória. Essa foi uma troca deliberada de simplicidade vs latência: a conexão direta entregaria atualizações instantaneamente, mas requer rastrear emitters por job entre threads e tratar reconexões/múltiplas abas corretamente. Consultar o banco significa:
 
-- any number of clients (tabs, browsers) can subscribe to the same job
-  independently, and a reconnect just resumes polling — no shared state to
-  reconcile;
-- the ~1s update latency is imperceptible for a process that takes tens of
-  seconds to minutes;
-- `GET /api/jobs/{id}` (plain polling, no SSE) is available as a fallback if
-  a client's `EventSource` connection is blocked by a proxy or firewall.
+- qualquer número de clientes (abas, navegadores) pode se inscrever no mesmo job independentemente, e uma reconexão simplesmente retoma o polling — sem estado compartilhado para reconciliar;
+- a latência de ~1s de atualização é imperceptível para um processo que leva dezenas de segundos a minutos;
+- `GET /api/jobs/{id}` (polling simples, sem SSE) está disponível como fallback se a conexão `EventSource` do cliente for bloqueada por um proxy ou firewall.
 
-## Pagination: keyset, not OFFSET
+## Paginação: keyset, não OFFSET
 
-`GET /api/transactions?cursor=&limit=` uses **keyset ("seek") pagination**,
-not `OFFSET/LIMIT`. This was a deliberate choice, not a default:
+`GET /api/transactions?cursor=&limit=` usa **paginação por keyset ("seek")**, não `OFFSET/LIMIT`. Essa foi uma escolha deliberada, não um padrão:
 
-- `OFFSET 500000 LIMIT 50` forces Postgres to scan and discard the first
-  500,000 matching rows on every request — cost grows linearly with page
-  depth. On a 1M+ row table this becomes the dominant cost of the endpoint.
-- Keyset pagination instead asks "give me the 50 rows after this specific
-  point," expressed as `WHERE (transaction_date, id) < (?, ?)`, which
-  Postgres can satisfy with a direct index seek — **verified via
-  `EXPLAIN ANALYZE`: 7ms response time, constant regardless of how deep into
-  the table the cursor points**, versus a cost that scales with offset depth
-  for the OFFSET approach.
-- **The trade-off:** clients can step forward/backward via an opaque cursor,
-  but can't jump to an arbitrary page number ("go to page 4,213"). For a
-  table this size, that's the right trade — a numbered page picker over
-  millions of rows isn't meaningfully more useful to a user than next/previous
-  anyway, and it isn't cheap to support.
-- The frontend's `transactionsStore` (Zustand) implements "Previous" by
-  keeping a small client-side history of visited cursors and re-fetching,
-  rather than caching page contents — each fetch is ~7ms, so re-fetching is
-  cheaper than the complexity of a cache.
+- `OFFSET 500000 LIMIT 50` força o Postgres a escanear e descartar as primeiras 500.000 linhas correspondentes em cada requisição — o custo cresce linearmente com a profundidade da página. Em uma tabela de 1M+ linhas, isso se torna o custo dominante do endpoint.
+- A paginação por keyset em vez disso pede "me dê as 50 linhas após este ponto específico", expresso como `WHERE (transaction_date, id) < (?, ?)`, que o Postgres pode satisfazer com uma busca direta por índice — **verificado via `EXPLAIN ANALYZE`: tempo de resposta de 7ms, constante independente de quão fundo no cursor a tabela aponte**, versus um custo que escala com a profundidade do offset na abordagem OFFSET.
+- **O trade-off:** clientes podem avançar/voltar via cursor opaco, mas não podem pular para um número de página arbitrário ("ir para página 4.213"). Para uma tabela desse tamanho, essa é a troca certa — um seletor de página numerado sobre milhões de linhas não é significativamente mais útil para um usuário do que anterior/próximo de qualquer forma, e não é barato de suportar.
+- O `transactionsStore` do frontend (Zustand) implementa "Anterior" mantendo um pequeno histórico client-side de cursores visitados e re-buscando, em vez de cachear conteúdo de páginas — cada busca é ~7ms, então re-buscar é mais barato do que a complexidade de um cache.
 
-## Index design
+## Design de índices
 
 ```sql
--- transactions table
-PRIMARY KEY (id)                                                    -- dedup on batch insert, point lookups
+PRIMARY KEY (id)                                                    -- dedup no batch insert, lookups por ponto
 CREATE INDEX idx_transactions_date_id ON transactions
-    (transaction_date DESC, id DESC);                                -- pagination
+    (transaction_date DESC, id DESC);                               -- paginação
 CREATE INDEX idx_transactions_agg ON transactions
-    (transaction_date, category) INCLUDE (amount);                   -- aggregation
+    (transaction_date, category) INCLUDE (amount);                  -- agregação
 ```
 
-**`idx_transactions_date_id` (pagination).** Matches the listing endpoint's
-sort order and cursor predicate exactly (`ORDER BY transaction_date DESC, id
-DESC` / `WHERE (transaction_date, id) < (?, ?)`), so it's used as a direct
-index seek rather than a scan.
+**`idx_transactions_date_id` (paginação).** Corresponde exatamente à ordem de classificação e predicado de cursor do endpoint de listagem (`ORDER BY transaction_date DESC, id DESC` / `WHERE (transaction_date, id) < (?, ?)`), então é usado como busca direta por índice em vez de scan.
 
-**`idx_transactions_agg` (aggregation) — and a correction worth documenting.**
-The aggregation endpoint (`GET /api/aggregations/by-category-month`) computes
-`SUM(amount) GROUP BY category, month`, optionally filtered by a date range —
-matching how a real dashboard actually queries this (e.g. "last 12 months by
-category"), not an unfiltered full-history dump.
+**`idx_transactions_agg` (agregação) — e uma correção que vale documentar.** O endpoint de agregação (`GET /api/aggregations/by-category-month`) computa `SUM(amount) GROUP BY category, month`, opcionalmente filtrado por intervalo de data — correspondendo a como um dashboard real realmente consulta isso (ex.: "últimos 12 meses por categoria"), não um dump completo sem filtro.
 
-The first version of this index was `(category, transaction_date) INCLUDE
-(amount)`, on the assumption that leading with the `GROUP BY`'s first column
-would help. Testing it with `EXPLAIN ANALYZE` against the real 1.5M-row table
-showed that assumption was wrong for the actual access pattern: a date-range
-filter against that index produced a `Bitmap Heap Scan` with real heap
-fetches — **841ms**. Reordering to lead with `transaction_date` (the column
-the filter is actually on) instead gives an **Index Only Scan with 0 heap
-fetches — 68ms, ~12x faster** — because Postgres can now seek directly to the
-date range and read `category`+`amount` straight out of the index without
-touching the table at all. `category` still rides along as the second key
-column (needed for the `GROUP BY`) and `amount` is carried via `INCLUDE` (not
-part of the key — it's only ever read, never filtered or sorted on).
+A primeira versão deste índice era `(category, transaction_date) INCLUDE (amount)`, assumindo que liderar com a primeira coluna do `GROUP BY` ajudaria. Testando com `EXPLAIN ANALYZE` contra a tabela real de 1,5M linhas mostrou que essa suposição estava errada para o padrão de acesso real: um filtro de intervalo de data contra esse índice produziu um `Bitmap Heap Scan` com fetches reais do heap — **841ms**. Reordenar para liderar com `transaction_date` (a coluna sobre a qual o filtro realmente atua) em vez disso dá um **Index Only Scan com 0 heap fetches — 68ms, ~12x mais rápido** — porque o Postgres agora pode buscar diretamente no intervalo de datas e ler `category`+`amount` direto do índice sem tocar na tabela. `category` ainda acompanha como segunda coluna-chave (necessária para o `GROUP BY`) e `amount` é carregado via `INCLUDE` (não parte da chave — é apenas lido, nunca filtrado ou ordenado).
 
-An **unfiltered** call to the same endpoint (no `from`/`to`) reasonably still
-gets a plain `Seq Scan` from the planner, and that's correct, not a
-regression — with no filter, the query touches 100% of the table either way,
-and a sequential heap scan is cheaper than walking the entire index leaf
-level for the same row count.
+Uma chamada **sem filtro** ao mesmo endpoint (sem `from`/`to`) ainda recebe razoavelmente um `Seq Scan` do planner, e isso está correto, não é uma regressão — sem filtro, a query toca 100% da tabela de qualquer forma, e um scan sequencial do heap é mais barato do que percorrer todo o nível folha do índice para a mesma contagem de linhas.
 
-**Why not index `category` alone, or lead with it?** The realistic dashboard
-query filters by date (a range) and groups by category (a low-cardinality
-dimension, 14 values in the generated data) — category alone isn't a
-selective filter, so an index leading with it wouldn't narrow a scan the way
-leading with the date does. Deliberately not adding a fourth index for a
-query pattern the endpoints don't actually serve — every additional index is
-paid for on every one of the 1.5M+ batch-inserted rows.
+**Por que não indexar `category` isoladamente, ou liderar com ela?** A query realista do dashboard filtra por data (um intervalo) e agrupa por categoria (uma dimensão de baixa cardinalidade, 14 valores nos dados gerados) — category isolada não é um filtro seletivo, então um índice liderando com ela não reduziria um scan da forma que liderar com a data faz. Deliberadamente não adicionando um quarto índice para um padrão de query que os endpoints não servem — cada índice adicional é pago em cada uma das 1,5M+ linhas inseridas em batch.
 
-## API reference
+## Referência da API
 
-All endpoints below except `/api/auth/register` and `/api/auth/login` require
-an authenticated session and are scoped to the caller's own data — see
-[Authentication](#authentication).
+Todos os endpoints abaixo, exceto `/api/auth/register` e `/api/auth/login`, requerem uma sessão autenticada e estão escopados aos dados do chamador — veja [Autenticação](#autenticação).
 
-| Endpoint | Purpose |
+| Endpoint | Finalidade |
 |---|---|
-| `POST /api/auth/register` | Create an account `{username, password}`, log in immediately |
-| `POST /api/auth/login` | `{username, password}` → session cookie |
-| `POST /api/auth/logout` | Invalidate the current session |
-| `GET /api/auth/me` | Current authenticated user |
-| `POST /api/uploads` (multipart `file`) | Accepts a CSV, returns `{jobId}` immediately, processes in the background |
-| `GET /api/jobs/{id}` | Job status: rows processed, rows failed, error sample, state |
-| `GET /api/jobs/{id}/events` | SSE stream of the same status, ~1s cadence |
-| `GET /api/transactions?cursor=&limit=` | Keyset-paginated transaction listing |
-| `GET /api/aggregations/by-category-month?from=&to=` | `SUM(amount)` grouped by category + month, optional date range |
-| `GET /api/aggregations/summary` | Dashboard headline metrics (total transactions, net volume, category count, date range) |
+| `POST /api/auth/register` | Cria uma conta `{username, password}` e loga imediatamente |
+| `POST /api/auth/login` | `{username, password}` → cookie de sessão |
+| `POST /api/auth/logout` | Invalida a sessão atual |
+| `GET /api/auth/me` | Usuário autenticado atual |
+| `POST /api/uploads` (multipart `file`) | Aceita um CSV, retorna `{jobId}` imediatamente, processa em background |
+| `GET /api/jobs/{id}` | Status do job: linhas processadas, falhas, amostra de erros, estado |
+| `GET /api/jobs/{id}/events` | Stream SSE do mesmo status, cadência ~1s |
+| `GET /api/transactions?cursor=&limit=` | Listagem de transações paginada por keyset |
+| `GET /api/aggregations/by-category-month?from=&to=` | `SUM(amount)` agrupado por categoria + mês, intervalo de data opcional |
+| `GET /api/aggregations/summary` | Métricas de cabeçalho do painel (total de transações, volume líquido, contagem de categorias, intervalo de datas) |
 
-## Authentication
+## Autenticação
 
-Username/password, session-cookie based (Spring Security), not JWT — the
-frontend is served same-origin through nginx, so there's no cross-origin
-token-storage problem for JWT to solve, and a session cookie avoids
-XSS-exposed token storage. CSRF is handled via a cookie the SPA reads and
-echoes back as `X-XSRF-TOKEN` on state-changing requests.
+Usuário/senha, baseada em cookie de sessão (Spring Security), não JWT — o frontend é servido same-origin pelo nginx, então não há problema de armazenamento de token cross-origin para o JWT resolver, e um cookie de sessão evita armazenamento de token exposto a XSS. CSRF é tratado via cookie que o SPA lê e ecoa de volta como `X-XSRF-TOKEN` nas requisições de mudança de estado.
 
-**Every user's data is fully isolated**, not just their job history: uploads,
-transactions, and dashboard aggregates are all scoped to the uploading
-account via an `owner_user_id` denormalized directly onto `transactions`
-(rather than joined from `ingestion_jobs`), so pagination and aggregation
-keep the index-only-scan behavior described above — just leading with
-`owner_user_id` instead of `transaction_date`. A brand-new account's
-dashboard starts empty until it uploads its own file.
+**Os dados de cada usuário são completamente isolados**, não apenas o histórico de jobs: uploads, transações e agregações do painel são todos escopados à conta que fez o upload via um `owner_user_id` desnormalizado diretamente em `transactions` (em vez de joined de `ingestion_jobs`), então paginação e agregação mantêm o comportamento de index-only-scan descrito acima. O painel de uma conta nova começa vazio até que ela faça upload do próprio arquivo.
 
-The backend has no published port in `docker-compose.yml` — nginx is the
-only path in. That's what makes it safe to trust nginx's `X-Forwarded-For`
-unconditionally (`server.forward-headers-strategy: framework`) for the
-per-IP rate limiting on `/api/uploads` and `/api/auth/*`: nothing external
-can reach the backend directly to spoof it.
+O backend não tem porta publicada no `docker-compose.yml` — o nginx é o único caminho de entrada. É isso que torna seguro confiar no `X-Forwarded-For` do nginx incondicionalmente (`server.forward-headers-strategy: framework`) para o rate limiting por IP em `/api/uploads` e `/api/auth/*`: nada externo pode alcançar o backend diretamente para falsificá-lo.
 
-## Trade-offs and assumptions, explicitly
+## Trade-offs e suposições, explicitamente
 
-- **CSV schema is trusted to be `id,date,category,amount,description`** with
-  ISO dates (`YYYY-MM-DD`) — matching what `data-generator/generate_csv.py`
-  produces. Rows that don't parse are skipped and counted, not silently
-  coerced.
-- **`id` is taken directly from the CSV as the primary key**, not a generated
-  surrogate key. This makes re-uploads idempotent via `ON CONFLICT DO
-  NOTHING` for free, at the cost of assuming upstream ids are already unique
-  (true for the generator; would need revisiting for multi-source ingestion
-  where id collisions across sources are possible).
-- **Error samples are capped at 50 per job**, not exhaustive. A systemically
-  broken file (wrong delimiter, wrong column order) will report its first 50
-  failures and a total count — enough to diagnose the problem — rather than
-  risk unbounded memory/storage for a pathological input.
-- **`GET /api/aggregations/summary` is a full-table scan** (`COUNT(DISTINCT
-  category)` in particular can't be served by an index seek). Measured at
-  ~1s against 1.5M rows. Acceptable because it's a once-per-dashboard-load
-  call, not a hot path in a loop — but it would need a materialized
-  rollup or approximate counting if summary freshness needed to be
-  sub-second at 10x this data size.
-- **SSE updates are ~1s-latency, not instant** (see the polling design above)
-  — a deliberate simplicity trade for a process that takes tens of seconds
-  to minutes.
-- **Single implicit user role, no roles/permissions table.** Every account
-  can upload/view its own data and nothing else — there's no admin/elevated
-  role in scope, so a roles system would be unused complexity.
-- **The frontend's production bundle is ~614KB** (Recharts is the majority of
-  that); noted by Vite's build output but not addressed, since code-splitting
-  the dashboard route wasn't worth the complexity for this scope. Would
-  reach for `React.lazy()` on the dashboard route first if this mattered.
+- **O schema do CSV é esperado ser `id,date,category,amount,description`** com datas ISO (`YYYY-MM-DD`) — correspondendo ao que `data-generator/generate_csv.py` produz. Linhas que não parseiam são ignoradas e contadas, não coercidas silenciosamente.
+- **O `id` é tomado diretamente do CSV como chave primária**, não uma chave substituta gerada. Isso torna re-uploads idempotentes via `ON CONFLICT DO NOTHING` gratuitamente, ao custo de assumir que os ids upstream já são únicos (verdadeiro para o gerador; precisaria ser revisitado para ingestão multi-fonte onde colisões de id entre fontes são possíveis).
+- **Amostras de erro são limitadas a 50 por job**, não exaustivas. Um arquivo sistematicamente quebrado (delimitador errado, ordem de colunas errada) reportará suas primeiras 50 falhas e uma contagem total — suficiente para diagnosticar o problema — em vez de arriscar memória/armazenamento ilimitado para uma entrada patológica.
+- **`GET /api/aggregations/summary` é um full-table scan** (`COUNT(DISTINCT category)` em particular não pode ser servido por uma busca de índice). Medido em ~1s contra 1,5M linhas. Aceitável porque é uma chamada única por carregamento do painel, não um caminho quente em loop — mas precisaria de um rollup materializado ou contagem aproximada se a atualização do resumo precisasse ser sub-segundo em 10x esse volume de dados.
+- **Atualizações SSE têm ~1s de latência, não são instantâneas** (veja o design de polling acima) — uma troca deliberada de simplicidade para um processo que leva dezenas de segundos a minutos.
+- **Role de usuário único implícito, sem tabela de roles/permissões.** Cada conta pode fazer upload/visualizar seus próprios dados e nada mais — não há role admin/elevada no escopo, então um sistema de roles seria complexidade não utilizada.
+- **O bundle de produção do frontend é ~614KB** (Recharts é a maioria disso); notado pelo output de build do Vite mas não endereçado, já que separar o route do painel em code splitting não valeria a complexidade para este escopo. Usaria `React.lazy()` no route do painel primeiro se isso importasse.
