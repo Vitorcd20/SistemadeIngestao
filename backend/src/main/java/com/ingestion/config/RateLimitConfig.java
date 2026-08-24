@@ -5,12 +5,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 
-/**
- * Faz bind de RateLimitProperties pra dois prefixos diferentes via Binder
- * API, em vez de @ConfigurationPropertiesScan — scan só suporta um bean por
- * classe, e aqui precisamos de app.ratelimit.uploads e app.ratelimit.auth
- * como duas instâncias distintas do mesmo shape.
- */
 @Configuration
 public class RateLimitConfig {
 

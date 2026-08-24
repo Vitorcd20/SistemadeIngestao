@@ -23,13 +23,6 @@ public class TransactionRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    // Insere um lote de linhas já parseadas numa única viagem por batchUpdate.
-    // Quem chama é responsável por manter o lote pequeno (ver
-    // app.ingestion.batch-size) — esse método não guarda nada além do que recebe.
-    //
-    // ownerId vem denormalizado em cada linha (em vez de só um join com
-    // ingestion_jobs) pra paginação e agregação filtrarem por owner como index
-    // seek direto — ver idx_transactions_owner_date_id / idx_transactions_owner_agg.
     public void batchInsert(List<TransactionRow> batch, long jobId, long ownerId) {
         jdbcTemplate.batchUpdate(INSERT_SQL, batch, batch.size(), (ps, row) -> {
             ps.setLong(1, row.id());
@@ -54,9 +47,6 @@ public class TransactionRepository {
             LIMIT ?
             """;
 
-    // A comparação row-wise deixa o Postgres usar idx_transactions_owner_date_id
-    // direto como seek, em vez de um scan por OFFSET que fica mais lento quanto
-    // mais fundo pagina.
     private static final String NEXT_PAGE_SQL = """
             SELECT id, transaction_date, category, amount, description
             FROM transactions
@@ -65,9 +55,6 @@ public class TransactionRepository {
             LIMIT ?
             """;
 
-    // Paginação keyset: busca até limit + 1 linhas pra saber se tem mais página
-    // sem precisar de um COUNT separado. Sempre filtrado por ownerId primeiro —
-    // ver idx_transactions_owner_date_id.
     public List<TransactionRow> findPage(long ownerId, LocalDate cursorDate, Long cursorId, int limit) {
         int fetchSize = limit + 1;
         if (cursorDate == null || cursorId == null) {

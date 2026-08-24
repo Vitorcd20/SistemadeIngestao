@@ -7,10 +7,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * Um único papel implícito (ROLE_USER) — toda conta só acessa/vê os próprios
- * dados, então não existe tabela de roles/permissões pra modelar.
- */
 public class AppUserDetails implements UserDetails {
 
     private final long id;

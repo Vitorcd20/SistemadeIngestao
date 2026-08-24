@@ -12,11 +12,6 @@ import java.util.List;
 @Repository
 public class AggregationRepository {
 
-    // idx_transactions_owner_agg lidera com owner_user_id (sempre presente),
-    // depois transaction_date pro filtro de range opcional, com category e
-    // amount (via INCLUDE) cobrindo o resto — o Postgres serve isso como Index
-    // Only Scan (0 heap fetches) com ou sem from/to, já que owner_user_id
-    // sozinho já restringe pras linhas de um usuário.
     private static final String BY_CATEGORY_MONTH_SQL = """
             SELECT category,
                    to_char(date_trunc('month', transaction_date), 'YYYY-MM') AS month,

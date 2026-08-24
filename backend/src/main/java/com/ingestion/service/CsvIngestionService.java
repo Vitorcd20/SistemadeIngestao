@@ -23,12 +23,6 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Lê o CSV enviado linha a linha via CSVParser em streaming e grava no
- * Postgres em lotes de tamanho fixo. Em nenhum momento essa classe segura o
- * arquivo inteiro, nem o resultado inteiro, em memória — só um lote de
- * linhas parseadas por vez (app.ingestion.batch-size, default 5.000).
- */
 @Service
 public class CsvIngestionService {
 
@@ -87,11 +81,11 @@ public class CsvIngestionService {
             log.info("Ingestion job {} completed: {} processed, {} failed", jobId, processed, failed);
 
         } catch (IOException e) {
-            log.error("Ingestion job {} failed while reading file", jobId, e);
-            jobRepository.markFailed(jobId, "Failed to read uploaded file: " + e.getMessage());
+            log.error("Ingestion job {} failed while reading file: {}", jobId, e.getMessage(), e);
+            jobRepository.markFailed(jobId, "Failed to read uploaded file — see server logs for details");
         } catch (Exception e) {
             log.error("Ingestion job {} failed unexpectedly", jobId, e);
-            jobRepository.markFailed(jobId, "Unexpected error: " + e.getMessage());
+            jobRepository.markFailed(jobId, "Unexpected processing error — see server logs for details");
         } finally {
             deleteQuietly(filePath);
         }
@@ -125,6 +119,9 @@ public class CsvIngestionService {
         if (category == null || category.isBlank()) {
             throw new RowParseException("missing category");
         }
+        if (category.length() > 100) {
+            throw new RowParseException("category exceeds maximum length of 100 characters");
+        }
 
         try {
             amount = new BigDecimal(record.get("amount"));
@@ -134,7 +131,16 @@ public class CsvIngestionService {
 
         String description = record.isMapped("description") ? record.get("description") : null;
 
-        return new TransactionRow(id, date, category, amount, description);
+        return new TransactionRow(id, date, sanitizeFormula(category), amount, sanitizeFormula(description));
+    }
+
+    private static String sanitizeFormula(String value) {
+        if (value == null || value.isEmpty()) return value;
+        char first = value.charAt(0);
+        if (first == '=' || first == '+' || first == '-' || first == '@' || first == '\t' || first == '\r') {
+            return "'" + value;
+        }
+        return value;
     }
 
     private String safeGet(CSVRecord record, String column) {

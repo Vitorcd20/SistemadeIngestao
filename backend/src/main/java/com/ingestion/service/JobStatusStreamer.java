@@ -13,12 +13,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
-/**
- * Faz polling no status de um job numa thread dedicada e empurra pro emitter
- * SSE até o job chegar num status terminal ou o emitter estourar o timeout.
- * Ficou fora do JobController pra essa lógica ser testável separada do
- * transporte HTTP/SSE.
- */
 @Service
 public class JobStatusStreamer {
 
@@ -40,10 +34,6 @@ public class JobStatusStreamer {
         this.objectMapper = objectMapper;
     }
 
-    // Começa a fazer polling do jobId (com escopo em ownerId) na sseExecutor e
-    // escreve cada status no emitter até chegar num status terminal. ownerId
-    // precisa ser capturado pelo caller na thread da request — SecurityContextHolder
-    // é thread-local e não propaga sozinho pras threads da sseExecutor.
     public SseEmitter stream(UUID jobId, long ownerId) {
         SseEmitter emitter = new SseEmitter(sseProperties.timeoutMs());
 

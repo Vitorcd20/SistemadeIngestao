@@ -29,9 +29,6 @@ public class IngestionJobRepository {
         this.objectMapper = objectMapper;
     }
 
-    // O id BIGSERIAL interno só é usado server-side (FK de transactions, nome do
-    // temp file); public_id é o identificador não-adivinhável que vai pro
-    // cliente, então job não dá pra enumerar andando pelos ids sequenciais.
     public JobHandle createJob(String fileName, long ownerId) {
         return jdbcTemplate.queryForObject("""
                 INSERT INTO ingestion_jobs (file_name, status, started_at, owner_user_id)
@@ -66,9 +63,6 @@ public class IngestionJobRepository {
                 """, toJson(List.of(errorMessage)), jobId);
     }
 
-    // Filtra por owner além do id: quem não é dono recebe o mesmo 404 de um id
-    // inexistente (nunca 403) — um job id vazado/adivinhado não confirma nem
-    // que o job existe pra quem não é dono.
     public JobStatusResponse findByPublicId(UUID publicId, long ownerId) {
         try {
             return jdbcTemplate.queryForObject("""
@@ -107,9 +101,6 @@ public class IngestionJobRepository {
         try {
             return objectMapper.writeValueAsString(values);
         } catch (JsonProcessingException e) {
-            // Em vez de falhar a escrita do status inteiro, salva sem error_sample
-            // — mas isso descarta silenciosamente o diagnóstico que essa coluna
-            // existe pra guardar. Vale saber que isso pode acontecer.
             log.warn("Failed to serialize {} error-sample entries to JSON; storing null instead", values.size(), e);
             return null;
         }
@@ -123,8 +114,6 @@ public class IngestionJobRepository {
             return objectMapper.readValue(json, objectMapper.getTypeFactory()
                     .constructCollectionType(List.class, String.class));
         } catch (JsonProcessingException e) {
-            // Mesma lógica do toJson: degrada em vez de falhar, mas aqui o risco
-            // é parecer job limpo por engano.
             log.warn("Failed to deserialize stored error_sample JSON; returning empty list instead", e);
             return List.of();
         }

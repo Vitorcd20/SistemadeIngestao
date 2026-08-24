@@ -9,11 +9,6 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
-/**
- * Username é normalizado (trim, lowercase) só aqui — assim toda chamada,
- * lookup ou insert, casa de forma consistente sem precisar lembrar de
- * normalizar em cada call site.
- */
 @Repository
 public class UserRepository {
 

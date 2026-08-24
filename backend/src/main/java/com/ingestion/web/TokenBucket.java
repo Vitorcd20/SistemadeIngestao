@@ -1,10 +1,5 @@
 package com.ingestion.web;
 
-/**
- * Token bucket simples, sem dependência externa. Uma instância por chave
- * limitada (ex: IP do cliente); {@link #tryConsume()} é o único ponto de
- * entrada e é seguro chamar concorrentemente.
- */
 final class TokenBucket {
 
     private final double capacity;

@@ -2,6 +2,11 @@ package com.ingestion.controller;
 
 import com.ingestion.repository.UserRepository;
 import com.ingestion.security.AppUserDetails;
+import com.ingestion.service.LoginAttemptService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -26,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+@Tag(name = "Autenticação", description = "Registro, login e logout de usuários")
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -35,14 +41,17 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final LoginAttemptService loginAttemptService;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
     public AuthController(AuthenticationManager authenticationManager,
                            UserRepository userRepository,
-                           PasswordEncoder passwordEncoder) {
+                           PasswordEncoder passwordEncoder,
+                           LoginAttemptService loginAttemptService) {
         this.authenticationManager = authenticationManager;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.loginAttemptService = loginAttemptService;
     }
 
     public record Credentials(
@@ -56,14 +65,16 @@ public class AuthController {
     public record UserResponse(String username) {
     }
 
+    @Operation(summary = "Registrar novo usuário",
+            responses = {
+                @ApiResponse(responseCode = "201", description = "Usuário criado e sessão iniciada"),
+                @ApiResponse(responseCode = "409", description = "Username já está em uso"),
+                @ApiResponse(responseCode = "429", description = "Conta temporariamente bloqueada")
+            })
+    @SecurityRequirements
     @PostMapping("/register")
     public ResponseEntity<UserResponse> register(@Valid @RequestBody Credentials credentials,
                                                   HttpServletRequest request, HttpServletResponse response) {
-        // UserRepository normaliza (trim/lowercase) internamente, então esse check
-        // e o insert abaixo concordam na mesma identidade. Ainda não é atômico com
-        // o insert — um register duplicado concorrente cai na violação de
-        // constraint única, que o GlobalExceptionHandler mapeia pra um 409 limpo
-        // em vez de 500.
         if (userRepository.existsByUsername(credentials.username())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already taken");
         }
@@ -72,27 +83,39 @@ public class AuthController {
         return authenticateAndRespond(credentials, request, response, HttpStatus.CREATED);
     }
 
+    @Operation(summary = "Fazer login",
+            description = "Autentica o usuário e inicia uma sessão. O cookie `JSESSIONID` retornado deve ser enviado nas demais requisições.",
+            responses = {
+                @ApiResponse(responseCode = "200", description = "Login bem-sucedido"),
+                @ApiResponse(responseCode = "401", description = "Credenciais inválidas"),
+                @ApiResponse(responseCode = "429", description = "Conta temporariamente bloqueada por excesso de tentativas")
+            })
+    @SecurityRequirements
     @PostMapping("/login")
     public ResponseEntity<UserResponse> login(@Valid @RequestBody Credentials credentials,
                                                HttpServletRequest request, HttpServletResponse response) {
         return authenticateAndRespond(credentials, request, response, HttpStatus.OK);
     }
 
+    @Operation(summary = "Usuário autenticado", description = "Retorna o username do usuário da sessão atual")
     @GetMapping("/me")
     public UserResponse me(@AuthenticationPrincipal AppUserDetails principal) {
         return new UserResponse(principal.getUsername());
     }
 
-    // Chamado por register (após criar conta) e login — ambos só autenticam e abrem sessão.
     private ResponseEntity<UserResponse> authenticateAndRespond(Credentials credentials,
                                                                   HttpServletRequest request,
                                                                   HttpServletResponse response,
                                                                   HttpStatus successStatus) {
+        if (loginAttemptService.isBlocked(credentials.username())) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Account temporarily locked due to too many failed attempts. Try again later.");
+        }
         try {
             establishSession(credentials.username(), credentials.password(), request, response);
+            loginAttemptService.recordSuccess(credentials.username());
         } catch (AuthenticationException e) {
-            // Mensagem genérica de propósito — não confirma se o username existe,
-            // então não dá pra enumerar contas com isso.
+            loginAttemptService.recordFailure(credentials.username());
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
         }
         return ResponseEntity.status(successStatus).body(new UserResponse(credentials.username()));
@@ -103,11 +126,6 @@ public class AuthController {
         Authentication authResult = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
 
-        // Rotaciona o id da sessão pós-autenticação (mesma coisa que o formLogin
-        // padrão do Spring Security faz via ChangeSessionIdAuthenticationStrategy).
-        // Esse fluxo manual com saveContext() não faz isso sozinho — sem essa
-        // linha, um id fixado por um atacante antes do login da vítima iria
-        // direto pra uma sessão autenticada.
         request.getSession(true);
         request.changeSessionId();
 

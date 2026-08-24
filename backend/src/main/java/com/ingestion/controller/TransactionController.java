@@ -4,6 +4,9 @@ import com.ingestion.dto.TransactionPageResponse;
 import com.ingestion.dto.TransactionRow;
 import com.ingestion.repository.TransactionRepository;
 import com.ingestion.security.AppUserDetails;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,14 +20,7 @@ import java.time.LocalDate;
 import java.util.Base64;
 import java.util.List;
 
-/**
- * Paginação keyset ("seek") no servidor, ordenada mais recente primeiro.
- * Escolhida em vez de OFFSET/LIMIT porque OFFSET força o Postgres a escanear
- * e descartar cada linha antes da página pedida — numa tabela de milhões de
- * linhas isso fica linearmente mais lento quanto mais fundo pagina. Trade-off:
- * cliente só anda pra frente/trás via cursor opaco, não pula pra uma página
- * arbitrária.
- */
+@Tag(name = "Transações", description = "Listagem paginada de transações do usuário")
 @RestController
 @RequestMapping("/api/transactions")
 public class TransactionController {
@@ -38,9 +34,13 @@ public class TransactionController {
         this.repository = repository;
     }
 
+    @Operation(summary = "Listar transações",
+            description = "Retorna uma página de transações do usuário autenticado, ordenadas por data descendente. Use o campo `nextCursor` da resposta para buscar a próxima página.")
     @GetMapping
     public TransactionPageResponse list(
+            @Parameter(description = "Cursor opaco retornado pela resposta anterior (para paginação)")
             @RequestParam(required = false) String cursor,
+            @Parameter(description = "Número de registros por página (padrão 50, máximo 500)")
             @RequestParam(required = false) Integer limit,
             @AuthenticationPrincipal AppUserDetails principal) {
 

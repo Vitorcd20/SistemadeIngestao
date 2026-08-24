@@ -11,25 +11,22 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import java.io.IOException;
-import java.util.concurrent.ConcurrentHashMap;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 
-/**
- * Token bucket por IP na frente de POST /api/uploads. Cada upload pode chegar a 2GB
- * e dispara um job de ingestão em background — é o endpoint mais exposto a esgotar
- * disco/DB/thread-pool se um caller mandar requests mais rápido do que o pipeline
- * consegue drenar.
- *
- * Chave é request.getRemoteAddr() — ver AuthRateLimitFilter pra por que dá pra
- * confiar nisso como IP real do cliente nesse deployment.
- */
+import java.io.IOException;
+import java.util.concurrent.TimeUnit;
+
 @Component
 public class UploadRateLimitFilter extends OncePerRequestFilter {
 
     private static final String LIMITED_PATH = "/api/uploads";
 
     private final RateLimitProperties properties;
-    private final ConcurrentHashMap<String, TokenBucket> buckets = new ConcurrentHashMap<>();
+    private final Cache<String, TokenBucket> buckets = Caffeine.newBuilder()
+            .maximumSize(50_000)
+            .expireAfterAccess(10, TimeUnit.MINUTES)
+            .build();
 
     public UploadRateLimitFilter(@Qualifier("uploadRateLimitProperties") RateLimitProperties properties) {
         this.properties = properties;
@@ -43,7 +40,7 @@ public class UploadRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        TokenBucket bucket = buckets.computeIfAbsent(request.getRemoteAddr(),
+        TokenBucket bucket = buckets.get(request.getRemoteAddr(),
                 key -> new TokenBucket(properties.capacity(), properties.refillPerMinute()));
 
         if (!bucket.tryConsume()) {

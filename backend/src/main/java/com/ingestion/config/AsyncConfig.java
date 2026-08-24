@@ -9,9 +9,6 @@ import java.util.concurrent.Executor;
 @Configuration
 public class AsyncConfig {
 
-    // Pool limitado pros jobs de ingestão CSV. Pequeno de propósito — ingestão
-    // é limitada por escrita em banco, não CPU, então mais threads só significa
-    // mais escritores em lote disputando a mesma tabela/índices.
     @Bean(name = "ingestionExecutor")
     public Executor ingestionExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -23,8 +20,6 @@ public class AsyncConfig {
         return executor;
     }
 
-    // Pool separado pros loops de polling do SSE, pra uma rajada de conexões
-    // do dashboard nunca sufocar o ingestionExecutor acima.
     @Bean(name = "sseExecutor")
     public Executor sseExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

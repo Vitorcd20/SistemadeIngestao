@@ -11,27 +11,23 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+
 import java.io.IOException;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Token bucket por IP na frente de /api/auth/login e /api/auth/register. Os
- * dois são permitAll no SecurityConfig (ainda não tem cookie de sessão pra
- * usar como chave), então isso é a única coisa entre eles e tentativas
- * ilimitadas de credential-stuffing / spam de registro.
- *
- * Chave é request.getRemoteAddr() — ver UploadRateLimitFilter pra entender
- * por que dá pra confiar nisso como IP real do cliente nesse deployment (sem
- * porta do backend publicada + forward-headers-strategy=framework).
- */
 @Component
 public class AuthRateLimitFilter extends OncePerRequestFilter {
 
     private static final Set<String> LIMITED_PATHS = Set.of("/api/auth/login", "/api/auth/register");
 
     private final RateLimitProperties properties;
-    private final ConcurrentHashMap<String, TokenBucket> buckets = new ConcurrentHashMap<>();
+    private final Cache<String, TokenBucket> buckets = Caffeine.newBuilder()
+            .maximumSize(50_000)
+            .expireAfterAccess(10, TimeUnit.MINUTES)
+            .build();
 
     public AuthRateLimitFilter(@Qualifier("authRateLimitProperties") RateLimitProperties properties) {
         this.properties = properties;
@@ -45,7 +41,7 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        TokenBucket bucket = buckets.computeIfAbsent(request.getRemoteAddr(),
+        TokenBucket bucket = buckets.get(request.getRemoteAddr(),
                 key -> new TokenBucket(properties.capacity(), properties.refillPerMinute()));
 
         if (!bucket.tryConsume()) {
