@@ -1,0 +1,74 @@
+server:
+  port: ${SERVER_PORT:8080}
+  # Use native (Tomcat RemoteIpValve) so X-Forwarded-For is only trusted
+  # from RFC-1918 proxy IPs (Docker internal network). External clients
+  # cannot spoof the header because their connection doesn't arrive from
+  # a trusted-proxy address.
+  forward-headers-strategy: native
+  servlet:
+    session:
+      cookie:
+        same-site: lax
+        secure: true
+        http-only: true
+
+spring:
+  application:
+    name: ingestion-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ingestion}
+    username: ${DB_USER:ingestion}
+    password: ${DB_PASSWORD:ingestion}
+    hikari:
+      maximum-pool-size: 10
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 102MB
+      file-size-threshold: 1KB
+
+app:
+  ingestion:
+    batch-size: ${INGESTION_BATCH_SIZE:5000}
+    error-sample-limit: 50
+    temp-dir: ${INGESTION_TEMP_DIR:${java.io.tmpdir}/ingestion-uploads}
+    max-file-size-bytes: ${INGESTION_MAX_FILE_SIZE_BYTES:104857600}
+  sse:
+    poll-interval-ms: 1000
+    timeout-ms: 600000
+  ratelimit:
+    uploads:
+      # burst of up to 5 uploads, then steady-state ~1 every 12s per client IP
+      capacity: 5
+      refill-per-minute: 5
+    auth:
+      # burst of up to 10 login/register attempts, then ~1 every 30s per client IP
+      capacity: 10
+      refill-per-minute: 2
+
+management:
+  server:
+    port: 9090
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+    disable-swagger-default-url: true
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    com.ingestion: INFO
