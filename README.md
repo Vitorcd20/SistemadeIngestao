@@ -6,12 +6,23 @@ Sistema full-stack para ingestão, processamento e exploração de grandes arqui
 
 ## Como rodar
 
+**Pré-requisito:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado e rodando. Nenhuma instalação de Java, Node, Maven ou Postgres é necessária.
+
 ```bash
+# 1. Clonar o repositório
+git clone https://github.com/Vitorcd20/SistemadeIngestao.git
+cd SistemadeIngestao
+
+# 2. Criar o arquivo de variáveis de ambiente
 cp .env.example .env
-docker compose up --build
+
+# 3. Buildar as imagens e subir os containers
+docker compose up -d --build
 ```
 
-Só isso — nenhuma instalação local de Java, Node, Maven ou Postgres é necessária. Assim que os containers reportarem healthy:
+O `--build` compila o backend (Maven) e gera o bundle do frontend (Vite) dentro do Docker — não é necessário ter Java ou Node instalados localmente. As migrations do Flyway são aplicadas automaticamente na primeira inicialização.
+
+Aguarde todos os containers ficarem saudáveis (≈30–60s na primeira vez) e acesse:
 
 - Frontend: http://localhost:3000 (registre-se ou faça login — uploads, transações e dados do painel são privados por conta)
 - API do backend: não publicada diretamente — acessível apenas pelo proxy `/api` do nginx (veja [Autenticação](#autenticação) para entender o porquê). Para debug local, use `docker compose exec backend sh` ou adicione temporariamente um `ports:` no `docker-compose.yml`.
