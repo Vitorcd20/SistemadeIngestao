@@ -2,24 +2,30 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
-export function LoginPage() {
+const MIN_PASSWORD_LENGTH = 8
+
+export function RegisterPage() {
   const navigate = useNavigate()
-  const { login, error } = useAuthStore()
+  const { register, error } = useAuthStore()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
-    const ok = await login(username, password)
+    const ok = await register(username, password)
     setSubmitting(false)
     if (ok) navigate('/')
   }
 
   return (
-    <div className="page">
-      <h1>Entrar</h1>
+    <div className="page page-centered">
+      <h1>Criar conta</h1>
+      <p className="subtitle">
+        Seus envios, transações e painel são privados da sua conta —
+        ninguém mais pode vê-los.
+      </p>
       <form className="auth-form" onSubmit={handleSubmit}>
         <div className="form-field">
           <label htmlFor="username">Usuário</label>
@@ -38,17 +44,18 @@ export function LoginPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
+            autoComplete="new-password"
+            minLength={MIN_PASSWORD_LENGTH}
             required
           />
         </div>
         {error && <p className="error-text">{error}</p>}
         <button className="btn-primary" type="submit" disabled={submitting}>
-          {submitting ? 'Entrando…' : 'Entrar'}
+          {submitting ? 'Criando conta…' : 'Cadastrar'}
         </button>
       </form>
       <p className="auth-switch">
-        Não tem uma conta? <Link to="/register">Cadastre-se</Link>
+        Já tem uma conta? <Link to="/login">Entrar</Link>
       </p>
     </div>
   )

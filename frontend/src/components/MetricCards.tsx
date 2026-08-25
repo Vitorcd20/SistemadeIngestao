@@ -1,14 +1,20 @@
+import type { Summary } from '../api/client'
+
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
   maximumFractionDigits: 0,
 })
 
-function compactNumber(value) {
+function compactNumber(value: number): string {
   return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(value)
 }
 
-export function MetricCards({ summary }) {
+interface MetricCardsProps {
+  summary: Summary | null
+}
+
+export function MetricCards({ summary }: MetricCardsProps) {
   if (!summary) return null
 
   const cards = [

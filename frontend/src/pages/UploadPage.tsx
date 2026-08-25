@@ -5,13 +5,13 @@ import { useJobStream } from '../hooks/useJobStream'
 import { ProgressPanel } from '../components/ProgressPanel'
 
 export function UploadPage() {
-  const inputRef = useRef(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const state = useUploadStore()
   const { jobId, status, fileName, startUpload, reset } = state
 
   useJobStream(status === 'processing' ? jobId : null)
 
-  const handleFileChange = (e) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) startUpload(file)
     e.target.value = ''
@@ -23,8 +23,8 @@ export function UploadPage() {
     <div className="page">
       <h1>Importar CSV de transações</h1>
       <p className="subtitle">
-        Envie um CSV de transações financeiras (id, data, categoria, valor, descrição).
-        O arquivo é processado em segundo plano — esta página é atualizada em tempo real via SSE.
+        Importe suas transações em CSV e acompanhe o processamento em tempo real.
+        Os dados ficam disponíveis no painel assim que concluído.
       </p>
 
       <div className="upload-controls">

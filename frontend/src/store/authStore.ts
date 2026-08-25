@@ -1,8 +1,21 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
 import { getCurrentUser, login, logout, register } from '../api/client'
+import type { User } from '../api/client'
 
-export const useAuthStore = create((set) => ({
+type AuthStatus = 'idle' | 'checking' | 'authenticated' | 'anonymous'
+
+interface AuthState {
+  user: User | null
+  status: AuthStatus
+  error: string | null
+  checkSession: () => Promise<void>
+  login: (username: string, password: string) => Promise<boolean>
+  register: (username: string, password: string) => Promise<boolean>
+  logout: () => Promise<void>
+}
+
+export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   status: 'idle',
   error: null,
@@ -25,8 +38,9 @@ export const useAuthStore = create((set) => ({
       toast.success(`Login realizado como ${user.username}`)
       return true
     } catch (e) {
-      set({ error: e.message })
-      toast.error(e.message)
+      const msg = (e as Error).message
+      set({ error: msg })
+      toast.error(msg)
       return false
     }
   },
@@ -39,8 +53,9 @@ export const useAuthStore = create((set) => ({
       toast.success(`Conta criada para ${user.username}`)
       return true
     } catch (e) {
-      set({ error: e.message })
-      toast.error(e.message)
+      const msg = (e as Error).message
+      set({ error: msg })
+      toast.error(msg)
       return false
     }
   },

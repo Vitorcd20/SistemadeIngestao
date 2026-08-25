@@ -1,6 +1,6 @@
 const GENERIC_FALLBACK = 'Ocorreu um erro. Tente novamente.'
 
-const EXACT_MESSAGES = {
+const EXACT_MESSAGES: Record<string, string> = {
   'Invalid username or password': 'Usuário ou senha inválidos',
   'Username is already taken': 'Este nome de usuário já está em uso',
   'Username is required': 'O nome de usuário é obrigatório',
@@ -16,7 +16,12 @@ const EXACT_MESSAGES = {
   'Uploaded file exceeds the maximum allowed size': 'O arquivo enviado excede o tamanho máximo permitido',
 }
 
-const PATTERN_MESSAGES = [
+interface PatternMessage {
+  pattern: RegExp
+  translate: (match: RegExpMatchArray) => string
+}
+
+const PATTERN_MESSAGES: PatternMessage[] = [
   {
     pattern: /^Password must be at least (\d+) characters$/,
     translate: (match) => `A senha deve ter no mínimo ${match[1]} caracteres`,
@@ -27,7 +32,7 @@ const PATTERN_MESSAGES = [
   },
 ]
 
-export function translateErrorMessage(rawMessage) {
+export function translateErrorMessage(rawMessage: string | null): string {
   if (!rawMessage) return GENERIC_FALLBACK
 
   for (const { pattern, translate } of PATTERN_MESSAGES) {

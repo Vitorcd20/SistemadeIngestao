@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { subscribeToJobEvents } from '../api/client'
 import { useUploadStore } from '../store/uploadStore'
 
-export function useJobStream(jobId) {
+export function useJobStream(jobId: string | null): void {
   const applyJobStatus = useUploadStore((s) => s.applyJobStatus)
 
   useEffect(() => {

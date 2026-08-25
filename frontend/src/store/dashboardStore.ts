@@ -1,8 +1,28 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
 import { getAggregationsByCategoryMonth, getSummary } from '../api/client'
+import type { Summary } from '../api/client'
 
-export const useDashboardStore = create((set) => ({
+export interface CategoryTotal {
+  category: string
+  total: number
+}
+
+export interface MonthlyTotal {
+  month: string
+  total: number
+}
+
+interface DashboardState {
+  summary: Summary | null
+  categoryTotals: CategoryTotal[]
+  monthlyTotals: MonthlyTotal[]
+  loading: boolean
+  error: string | null
+  load: () => Promise<void>
+}
+
+export const useDashboardStore = create<DashboardState>((set) => ({
   summary: null,
   categoryTotals: [],
   monthlyTotals: [],
@@ -17,8 +37,8 @@ export const useDashboardStore = create((set) => ({
         getAggregationsByCategoryMonth(),
       ])
 
-      const categoryMap = new Map()
-      const monthMap = new Map()
+      const categoryMap = new Map<string, number>()
+      const monthMap = new Map<string, number>()
       for (const row of byCategoryMonth) {
         categoryMap.set(row.category, (categoryMap.get(row.category) ?? 0) + Number(row.totalAmount))
         monthMap.set(row.month, (monthMap.get(row.month) ?? 0) + Number(row.totalAmount))
@@ -33,8 +53,9 @@ export const useDashboardStore = create((set) => ({
         loading: false,
       })
     } catch (e) {
-      set({ error: e.message, loading: false })
-      toast.error(e.message)
+      const msg = (e as Error).message
+      set({ error: msg, loading: false })
+      toast.error(msg)
     }
   },
 }))

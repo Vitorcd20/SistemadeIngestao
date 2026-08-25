@@ -1,11 +1,23 @@
-const STATUS_LABELS = {
+import type { UploadStatus } from '../store/uploadStore'
+
+const STATUS_LABELS: Record<UploadStatus, string> = {
+  idle: '',
   uploading: 'Enviando…',
   processing: 'Processando…',
   completed: 'Concluído',
   failed: 'Falhou',
 }
 
-export function ProgressPanel({ fileName, status, rowsProcessed, rowsFailed, errorSample, uploadError }) {
+interface ProgressPanelProps {
+  fileName: string | null
+  status: UploadStatus
+  rowsProcessed: number
+  rowsFailed: number
+  errorSample: string[]
+  uploadError: string | null
+}
+
+export function ProgressPanel({ fileName, status, rowsProcessed, rowsFailed, errorSample, uploadError }: ProgressPanelProps) {
   const isActive = status === 'uploading' || status === 'processing'
 
   return (

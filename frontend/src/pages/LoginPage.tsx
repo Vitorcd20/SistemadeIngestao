@@ -2,30 +2,24 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
-const MIN_PASSWORD_LENGTH = 8
-
-export function RegisterPage() {
+export function LoginPage() {
   const navigate = useNavigate()
-  const { register, error } = useAuthStore()
+  const { login, error } = useAuthStore()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
-    const ok = await register(username, password)
+    const ok = await login(username, password)
     setSubmitting(false)
     if (ok) navigate('/')
   }
 
   return (
-    <div className="page">
-      <h1>Criar conta</h1>
-      <p className="subtitle">
-        Seus envios, transações e painel são privados da sua conta —
-        ninguém mais pode vê-los.
-      </p>
+    <div className="page page-centered">
+      <h1>Entrar</h1>
       <form className="auth-form" onSubmit={handleSubmit}>
         <div className="form-field">
           <label htmlFor="username">Usuário</label>
@@ -44,18 +38,17 @@ export function RegisterPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoComplete="new-password"
-            minLength={MIN_PASSWORD_LENGTH}
+            autoComplete="current-password"
             required
           />
         </div>
         {error && <p className="error-text">{error}</p>}
         <button className="btn-primary" type="submit" disabled={submitting}>
-          {submitting ? 'Criando conta…' : 'Cadastrar'}
+          {submitting ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
       <p className="auth-switch">
-        Já tem uma conta? <Link to="/login">Entrar</Link>
+        Não tem uma conta? <Link to="/register">Cadastre-se</Link>
       </p>
     </div>
   )

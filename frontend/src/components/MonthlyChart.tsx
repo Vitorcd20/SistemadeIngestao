@@ -1,12 +1,19 @@
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import type { MonthlyTotal } from '../store/dashboardStore'
 
 const ACCENT = '#e4e4e7'
 const GRID = '#2a2a2e'
 const TEXT_MUTED = '#8b8b90'
 
-function CustomTooltip({ active, payload, label }) {
+interface TooltipInternalProps {
+  active?: boolean
+  payload?: Array<{ value: number }>
+  label?: string
+}
+
+function CustomTooltip({ active, payload, label }: TooltipInternalProps) {
   if (!active || !payload?.length) return null
-  const value = payload[0].value
+  const value = payload[0].value ?? 0
   return (
     <div className="chart-tooltip">
       <div className="chart-tooltip-label">{label}</div>
@@ -17,7 +24,11 @@ function CustomTooltip({ active, payload, label }) {
   )
 }
 
-export function MonthlyChart({ data }) {
+interface MonthlyChartProps {
+  data: MonthlyTotal[]
+}
+
+export function MonthlyChart({ data }: MonthlyChartProps) {
   return (
     <div className="chart-panel">
       <h3>Valor líquido por mês</h3>
@@ -33,7 +44,7 @@ export function MonthlyChart({ data }) {
             interval="preserveStartEnd"
           />
           <YAxis
-            tickFormatter={(v) => `${v < 0 ? '-' : ''}$${Math.round(Math.abs(v) / 1000)}k`}
+            tickFormatter={(v: number) => `${v < 0 ? '-' : ''}$${Math.round(Math.abs(v) / 1000)}k`}
             stroke={TEXT_MUTED}
             tick={{ fontSize: 12 }}
             axisLine={false}

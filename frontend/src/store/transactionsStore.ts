@@ -1,10 +1,25 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
 import { listTransactions } from '../api/client'
+import type { Transaction } from '../api/client'
 
 const PAGE_SIZE = 25
 
-export const useTransactionsStore = create((set, get) => ({
+interface TransactionsState {
+  items: Transaction[]
+  history: (string | null)[]
+  index: number
+  frontierCursor: string | null
+  hasMore: boolean
+  loading: boolean
+  error: string | null
+  fetchPage: (cursor: string | null) => Promise<void>
+  init: () => void
+  goNext: () => void
+  goPrev: () => void
+}
+
+export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   items: [],
   history: [null],
   index: 0,
@@ -24,8 +39,9 @@ export const useTransactionsStore = create((set, get) => ({
         loading: false,
       })
     } catch (e) {
-      set({ error: e.message, loading: false })
-      toast.error(e.message)
+      const msg = (e as Error).message
+      set({ error: msg, loading: false })
+      toast.error(msg)
     }
   },
 

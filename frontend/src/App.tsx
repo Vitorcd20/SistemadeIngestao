@@ -8,11 +8,11 @@ import { RegisterPage } from './pages/RegisterPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { useAuthStore } from './store/authStore'
 
-function RequireAuth({ children }) {
+function RequireAuth({ children }: { children: React.ReactNode }) {
   const status = useAuthStore((s) => s.status)
   if (status === 'idle' || status === 'checking') return null
   if (status === 'anonymous') return <Navigate to="/login" replace />
-  return children
+  return <>{children}</>
 }
 
 function SessionInfo() {
@@ -51,7 +51,7 @@ function App() {
           '--error-bg': 'var(--danger-tint)',
           '--error-border': 'var(--danger)',
           '--error-text': 'var(--danger)',
-        }}
+        } as React.CSSProperties}
       />
       <nav className="top-nav">
         <span className="brand">Sistema de Ingestão</span>
