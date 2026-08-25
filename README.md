@@ -49,7 +49,7 @@ backend/src/main/java/com/ingestion/
 
 ## Como o OOM foi evitado no processamento de arquivos
 
-Três decisões independentes se combinam para manter a memória estável independente do tamanho do arquivo — medido em **~180–205MB** processando um CSV de 1,5M linhas / 78MB no container de produção (base ~180MB com tabela vazia; pico ~205MB durante a ingestão; volta a ~186MB ao final — sem tendência de crescimento ao longo da execução):
+Três decisões independentes se combinam para manter a memória estável independente do tamanho do arquivo medido em **180–205MB** processando um CSV de 1,5M linhas / 78MB no container de produção (base ~180MB com tabela vazia; pico 205MB durante a ingestão; volta a 186MB ao final sem tendência de crescimento ao longo da execução):
 
 1. **O upload nunca é bufferizado em memória.**
    `spring.servlet.multipart.file-size-threshold` é configurado baixo (`1KB`), o que força o Tomcat a fazer spool do corpo multipart diretamente em um arquivo temporário em disco em vez de mantê-lo como array de bytes. O `UploadController` então lê desse arquivo spoolado para seu próprio caminho temporário gerenciado via `Files.copy(inputStream, targetPath)` — uma cópia com buffer de tamanho fixo, não uma chamada a `getBytes()`.
@@ -86,7 +86,7 @@ Falhas por linha (data inválida, valor inválido, id ausente, etc.) são captur
 - `OFFSET 500000 LIMIT 50` força o Postgres a escanear e descartar as primeiras 500.000 linhas correspondentes em cada requisição — o custo cresce linearmente com a profundidade da página. Em uma tabela de 1M+ linhas, isso se torna o custo dominante do endpoint.
 - A paginação por keyset em vez disso pede "me dê as 50 linhas após este ponto específico", expresso como `WHERE (transaction_date, id) < (?, ?)`, que o Postgres pode satisfazer com uma busca direta por índice — **verificado via `EXPLAIN ANALYZE`: tempo de resposta de 7ms, constante independente de quão fundo no cursor a tabela aponte**, versus um custo que escala com a profundidade do offset na abordagem OFFSET.
 - **O trade-off:** clientes podem avançar/voltar via cursor opaco, mas não podem pular para um número de página arbitrário ("ir para página 4.213"). Para uma tabela desse tamanho, essa é a troca certa — um seletor de página numerado sobre milhões de linhas não é significativamente mais útil para um usuário do que anterior/próximo de qualquer forma, e não é barato de suportar.
-- O `transactionsStore` do frontend (Zustand) implementa "Anterior" mantendo um pequeno histórico client-side de cursores visitados e re-buscando, em vez de cachear conteúdo de páginas — cada busca é ~7ms, então re-buscar é mais barato do que a complexidade de um cache.
+- O `transactionsStore` do frontend (Zustand) implementa "Anterior" mantendo um pequeno histórico client-side de cursores visitados e re-buscando, em vez de cachear conteúdo de páginas cada busca é 7ms, então re-buscar é mais barato do que a complexidade de um cache.
 
 ## Design de índices
 
