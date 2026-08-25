@@ -92,10 +92,15 @@ public class CsvIngestionService {
     }
 
     private long flush(List<TransactionRow> batch, long jobId, long ownerId) {
-        transactionRepository.batchInsert(batch, jobId, ownerId);
-        int count = batch.size();
+        int[][] counts = transactionRepository.batchInsert(batch, jobId, ownerId);
         batch.clear();
-        return count;
+        long inserted = 0;
+        for (int[] innerBatch : counts) {
+            for (int c : innerBatch) {
+                if (c > 0) inserted += c;
+            }
+        }
+        return inserted;
     }
 
     private TransactionRow parseRow(CSVRecord record) {

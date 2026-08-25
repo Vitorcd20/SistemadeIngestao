@@ -14,7 +14,7 @@ public class TransactionRepository {
     private static final String INSERT_SQL = """
             INSERT INTO transactions (id, transaction_date, category, amount, description, ingestion_job_id, owner_user_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (id) DO NOTHING
+            ON CONFLICT (id, owner_user_id) DO NOTHING
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -23,8 +23,8 @@ public class TransactionRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public void batchInsert(List<TransactionRow> batch, long jobId, long ownerId) {
-        jdbcTemplate.batchUpdate(INSERT_SQL, batch, batch.size(), (ps, row) -> {
+    public int[][] batchInsert(List<TransactionRow> batch, long jobId, long ownerId) {
+        return jdbcTemplate.batchUpdate(INSERT_SQL, batch, batch.size(), (ps, row) -> {
             ps.setLong(1, row.id());
             ps.setObject(2, row.transactionDate());
             ps.setString(3, row.category());
